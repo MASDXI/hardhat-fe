@@ -1,0 +1,14 @@
+use std::context::Context
+
+contract Greeter:
+
+    _greeting:String<100>
+
+    pub fn __init__(self, greeting: String<100>):
+        self._greeting = greeting
+
+    pub fn setGreeting(self, greeting: String<100>):
+        self._greeting = greeting
+
+    pub fn greet(self) -> String<100>:
+        return self._greeting.to_mem()

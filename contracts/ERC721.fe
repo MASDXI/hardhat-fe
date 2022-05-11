@@ -1,0 +1,172 @@
+use std::context::Context
+
+contract ERC721:
+
+    _name: String<100>
+    _symbol: String<100>
+    _baseURI: String<256>
+    _totalSupply: u256
+    _owners: Map<u256, address>
+    _balances: Map<address, u256>
+    _tokenApprovals: Map<u256,address>
+    _operatorApprovals: Map<address, Map<address, bool>>
+
+    event Transfer:
+        idx from: address
+        idx to: address
+        tokenId: u256
+
+    event Approval:
+        idx owner: address
+        idx approved: address
+        tokenId: u256
+
+    event ApprovalForAll:
+        idx owner: address
+        idx operator: address
+        approved: bool
+
+    pub fn __init__(self, name_: String<100> ,symbol_: String<100>):
+        self._name = name_
+        self._symbol = symbol_
+        self._baseURI = "mock"
+
+    pub fn balanceOf(self, owner: address) -> u256:
+        assert owner != address(0), "ERC721: address zero is not a valid owner"
+        return self._balances[owner]
+
+    pub fn ownerOf(self, tokenId: u256) -> address:
+        let owner: address = self._owners[tokenId]
+        assert owner != address(0), "ERC721: owner query for nonexistent token"
+        return owner
+
+    pub fn name(self) -> String<100>:
+        return self._name.to_mem()
+
+    pub fn symbol(self) -> String<100>:
+        return self._symbol.to_mem()
+
+    # TODO support bytes and string concat
+    pub fn tokenURI(self, tokenId: u256) -> String<256>:
+        assert self._exists(tokenId) , "ERC721Metadata: URI query for nonexistent token"
+        return self._baseURI.to_mem()
+
+    pub fn approve(self, ctx: Context, to: address, tokenId: u256):
+        let owner: address = self.ownerOf(tokenId)
+        assert to != owner, "ERC721: approval to current owner"
+        assert ctx.msg_sender() == owner or self.isApprovedForAll(owner, operator: ctx.msg_sender()), "ERC721: approve caller is not owner nor approved for all"
+        self._approve(ctx, to, tokenId)
+
+    pub fn getApproved(self, tokenId: u256) -> address:
+        assert self._exists(tokenId), "ERC721: approved query for nonexistent token"
+        return self._tokenApprovals[tokenId]
+
+    pub fn setApprovalForAll(self, ctx: Context, operator: address, approved: bool):
+        self._set_approve_for_all(ctx, owner: ctx.msg_sender(), operator, approved)
+
+    pub fn isApprovedForAll(self, owner: address, operator: address) -> bool:
+        return self._operatorApprovals[owner][operator]
+
+    pub fn transferFrom(self, ctx: Context, from: address, to: address, tokenId: u256):
+        assert self._is_approved_or_owner(spender: ctx.msg_sender(), tokenId)
+        self._transfer(ctx, from, to, tokenId)
+
+    pub fn safeTransferFrom(self, ctx: Context, from: address, to: address, tokenId: u256):
+        self._safe_transfer_from(ctx, from, to, tokenId)
+
+    fn _safe_transfer_from(self, ctx: Context, from: address, to: address, tokenId: u256):
+    #   assert self._is_approved_or_owner(ctx.msg_sender(), tokenId), "ERC721: transfer caller is not owner nor approved"
+        self._transfer(ctx, from, to, tokenId)
+
+    # TODO bytes support
+    # pub fn safeTransferFrom(self, ctx: Context, from: address, to: address, tokenId: u256, data: bytes):
+    #   assert self._is_approved_or_owner(ctx.msg_sender(), tokenId), "ERC721: transfer caller is not owner nor approved"
+    #   self._safe_transfer_from(ctx, from, to, tokenId, data)
+
+    # TODO bytes support
+    fn _safeTransfer(self, ctx: Context, from: address,to: address,tokenId: u256):
+    #   data: bytes
+        self._transfer(ctx, from, to, tokenId)
+    #   assert self._checkOnERC721Recevied(from, to, tokenId, data), "ERC721: transfer to non ERC721Receiver implementer"
+    
+
+    fn _transfer(self, ctx: Context, from: address, to: address, tokenId: u256):
+        assert self.ownerOf(tokenId) == from, "ERC721: transfer from incorrect owner"
+        assert to != address(0), "ERC721: transfer to the zero address"
+        _before_token_transfer(from: from,to: address(0), tokenId: tokenId)
+        self._approve(ctx, to: address(0), tokenId)
+        self._balances[from] -= 1
+        self._balances[to] += 1
+        self._owners[tokenId] = to
+        emit Transfer(ctx, from, to, tokenId)
+        _after_token_transfer(from: from,to: address(0), tokenId: tokenId)
+
+    fn _exists(self, tokenId: u256) -> bool:
+        return self._owners[tokenId] != address(0)
+
+    fn _is_approved_or_owner(self, spender: address, tokenId: u256) -> bool:
+        assert self._exists(tokenId), "ERC721: operator query for nonexistent token"
+        let owner: address = self.ownerOf(tokenId)
+        return (spender == owner or self.isApprovedForAll(owner, operator: spender) or self.getApproved(tokenId) == spender)
+
+    # TODO support bytes
+    fn _safeMint(self, ctx: Context, to: address, tokenId: u256):
+        # self._safeMint(to, tokenId, "")
+        self._mint(ctx, to, tokenId)
+
+    # TODO support bytes
+    # fn _safeMint(self, to: address, tokenId: u256, data: bytes):
+    #    self._mint(to, tokenId)
+    #    assert self._checkOnERC721Recevied(from, to, tokenId, data), "ERC721: transfer to non ERC721Receiver implementer"
+
+    fn _mint(self, ctx: Context, to: address, tokenId: u256):
+        assert to != address(0), "ERC721: mint to the zero address"
+        assert self._exists(tokenId) == false, "ERC721: token already minted"
+        _before_token_transfer(from: address(0),to: to, tokenId: tokenId)
+        self._balances[to] += 1
+        self._owners[tokenId] = to
+        emit Transfer(ctx, from: address(0), to: to, tokenId)
+        _after_token_transfer(from: address(0),to: to, tokenId: tokenId)
+    
+    fn _burn(self, ctx: Context, tokenId: u256):
+        let owner: address = self.ownerOf(tokenId)
+        _before_token_transfer(from: owner,to: address(0), tokenId: tokenId)
+        self._approve(ctx, to: address(0), tokenId)
+        self._balances[owner] -= 1
+        # delete is not support
+        self._owners[tokenId] = address(0)
+        emit Transfer(ctx, from: owner, to: address(0), tokenId)
+        _after_token_transfer(from: owner,to: address(0), tokenId: tokenId)
+
+    fn _approve(self, ctx: Context, to: address, tokenId: u256):
+        self._tokenApprovals[tokenId] = to
+        emit Approval(ctx, owner: self.ownerOf(tokenId), approved: to, tokenId)
+    
+    fn _set_approve_for_all(self, ctx: Context, owner: address, operator: address, approved: bool):
+        assert owner != operator, "ERC721: approve to caller"
+        self._operatorApprovals[owner][operator] = approved
+        emit ApprovalForAll(ctx, owner, operator, approved)
+
+    # TODO support IERC721Receiver
+    # fn _checkOnERC721Received(self, ctx: Contextm from: address, to: address, tokenId: u256, data bytes) -> bool:
+    #    if (to.isContract()):
+    #        try IERC721Receiver(to).onERC721Received(ctx.msg_sender(), from, tokenId, data) -> bytes4:
+    #           return retval == IERC721Receiver.onERC721Received.selector
+    #        catch (bytes memory reason):
+    #            if (reason.length == 0):
+    #                revert("ERC721: transfer to non ERC721Receiver implementer")
+    #            else:
+    #                assembly:
+    #                    revert(add(32, reason), mload(reason))
+    #    else:
+    #         return true
+
+    fn _before_token_transfer(from: address, to: address, tokenId: u256):
+        pass
+
+    fn _after_token_transfer(from: address, to: address, tokenId: u256):
+        pass
+
+
+
+    
